@@ -5,14 +5,15 @@ use std::sync::Arc;
 
 use lazy_static::lazy_static;
 
+use bytes::Bytes;
 use http::{uri::Uri, StatusCode};
 use hyper::client::HttpConnector;
 use hyper::header::{HeaderMap, HeaderName};
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, Request, Response, Server};
+use hyper::{Body, Client, Method, Request, Response, Server};
 use hyper_tls::HttpsConnector;
 
-use crate::aws::AwsTarget;
+use crate::aws::AutomaticSigner;
 use crate::consts::*;
 use crate::errors::*;
 use crate::{init_logger, ServeArgs};
@@ -26,6 +27,35 @@ fn make_client() -> Client<HttpsConnector<HttpConnector>, hyper::Body> {
     Client::builder().build::<_, hyper::Body>(https)
 }
 
+#[derive(Debug)]
+struct ForwardTarget {
+    target_url: String,
+    signer: AutomaticSigner,
+}
+
+impl ForwardTarget {
+    pub fn new(url: &str) -> Result<Self, ConfigErrors> {
+        let captures = match AWS_URL_RE.captures(&url) {
+            Some(capture) => capture,
+            None => return Err(ConfigErrors::InvalidAwsTarget(url.to_string())),
+        };
+
+        let signer = AutomaticSigner::new(
+            captures["service"].to_string(),
+            captures["region"].to_string(),
+        );
+
+        Ok(ForwardTarget {
+            signer,
+            target_url: url.to_string(),
+        })
+    }
+
+    pub async fn sign_request(&self, uri: &Uri, method: Method, body: &Bytes) -> Option<HeaderMap> {
+        self.signer.sign_request(&uri, method.clone(), &body).await
+    }
+}
+
 pub(crate) async fn serve(args: &ServeArgs) -> Result<(), CliErrors> {
     init_logger(&args.logging_opts);
 
@@ -34,12 +64,12 @@ pub(crate) async fn serve(args: &ServeArgs) -> Result<(), CliErrors> {
     info!("Listening on {}", server_addr);
     info!("Forwarding request to {}", args.destination);
 
-    let aws_target = Arc::new(AwsTarget::new(&args.destination)?);
-    debug!("aws_target: {:?}", aws_target);
+    let request_signer = Arc::new(ForwardTarget::new(&args.destination)?);
+    debug!("aws_target: {:?}", request_signer);
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(move |_| {
-        let aws_target = aws_target.clone();
+        let aws_target = request_signer.clone();
         async move {
             let handle = move |req| process_request(aws_target.clone(), req);
             Ok::<_, Infallible>(service_fn(handle))
@@ -64,7 +94,7 @@ async fn shutdown_signal() {
 }
 
 async fn process_request(
-    aws_target: Arc<AwsTarget>,
+    aws_target: Arc<ForwardTarget>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Infallible> {
     trace!("Processing request for {:?}", req);
@@ -83,18 +113,18 @@ async fn process_request(
 
     let method = req.method().clone();
     let full_body = hyper::body::to_bytes(req.into_body()).await.unwrap();
-    let aws_headers =
-        match crate::request::create_aws_headers(target_uri.clone(), method.clone(), aws_target, &full_body)
-            .await
-        {
-            Some(headers) => headers,
-            None => {
-                return Ok(Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::from("Unable to auth with AWS"))
-                    .unwrap());
-            }
-        };
+    let aws_headers = match aws_target
+        .sign_request(&target_uri, method.clone(), &full_body)
+        .await
+    {
+        Some(headers) => headers,
+        None => {
+            return Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from("Unable to auth with AWS"))
+                .unwrap());
+        }
+    };
 
     for (key, value) in aws_headers.iter() {
         downstream_headers.insert(key, value.clone());
@@ -130,7 +160,7 @@ async fn process_request(
                 .body(Body::from("Unable to execute downstream request"))
                 .unwrap());
         }
-        Ok(resp) => resp
+        Ok(resp) => resp,
     };
 
     Ok(response)

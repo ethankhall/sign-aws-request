@@ -7,7 +7,6 @@ mod consts;
 mod errors;
 mod request;
 mod serve;
-mod test;
 
 #[derive(Clap, Debug)]
 struct LoggingOpts {
@@ -36,14 +35,6 @@ struct Opts {
 #[derive(Clap, Debug)]
 enum SubCommand {
     Serve(ServeArgs),
-Test(    TestArgs
-    ),
-}
-
-#[derive(Clap, Debug)]
-struct TestArgs {
-    #[clap(flatten)]
-    logging_opts: LoggingOpts,
 }
 
 #[derive(Clap, Debug)]
@@ -65,7 +56,6 @@ pub async fn main() {
     let opt = Opts::parse();
     let result = match opt.subcmd {
         SubCommand::Serve(args) => crate::serve::serve(&args).await,
-        SubCommand::Test(args) => crate::test::test(&args).await,
     };
 
     if let Err(e) = result {

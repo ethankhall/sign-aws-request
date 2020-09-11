@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use log::error;
 
 use lazy_static::lazy_static;
 use rusoto_credential::{
@@ -7,8 +8,12 @@ use rusoto_credential::{
 };
 use rusoto_sts::WebIdentityProvider;
 
-use crate::consts::AWS_URL_RE;
-use crate::errors::*;
+use crate::request::Signer;
+
+use http::{Method, Uri};
+use hyper::header::HeaderMap;
+
+use bytes::Bytes;
 
 lazy_static! {
     pub static ref CREDENTIALS: AwsCredentialProvider = AwsCredentialProvider::new();
@@ -41,25 +46,25 @@ impl ProvideAwsCredentials for AwsCredentialProvider {
 }
 
 #[derive(Debug)]
-pub(crate) struct AwsTarget {
-    pub(crate) service: String,
-    pub(crate) region: String,
-    pub(crate) endpoint: String,
-    pub(crate) target_url: String,
+pub struct AutomaticSigner {
+    signer: Signer,
 }
 
-impl AwsTarget {
-    pub fn new(url: &str) -> Result<Self, ConfigErrors> {
-        let captures = match AWS_URL_RE.captures(&url) {
-            Some(capture) => capture,
-            None => return Err(ConfigErrors::InvalidAwsTarget(url.to_string())),
+impl AutomaticSigner {
+    pub fn new(service: String, region: String) -> Self {
+        AutomaticSigner {
+            signer: Signer::new(service, region),
+        }
+    }
+    pub async fn sign_request(&self, uri: &Uri, method: Method, body: &Bytes) -> Option<HeaderMap> {
+        let creds = match CREDENTIALS.credentials().await {
+            Ok(creds) => creds,
+            Err(e) => {
+                error!("Unable to fetch credentials: {:?}", e);
+                return None;
+            }
         };
 
-        Ok(AwsTarget {
-            endpoint: captures["endpoint"].to_string(),
-            region: captures["region"].to_string(),
-            service: captures["service"].to_string(),
-            target_url: url.to_string(),
-        })
+        self.signer.sign_request(uri, method, body, creds)
     }
 }

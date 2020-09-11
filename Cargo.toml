@@ -29,3 +29,6 @@ hex = "0.4"
 sha2 = "0.9"
 hmac = "0.9.0"
 url = "2"
+
+[dev-dependencies]
+env_logger = "0.7"
