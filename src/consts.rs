@@ -22,8 +22,6 @@ pub const STRICT_ENCODE_SET: AsciiSet = NON_ALPHANUMERIC
 /// This struct is used to maintain the URI path encoding
 pub const STRICT_PATH_ENCODE_SET: AsciiSet = STRICT_ENCODE_SET.remove(b'/');
 
-pub static UNSIGNED_PAYLOAD: &str = "UNSIGNED-PAYLOAD";
-
 lazy_static! {
     pub static ref AWS_URL_RE: Regex = Regex::new(r"^https?://(?P<endpoint>[a-zA-Z0-9\-_]+)\.(?P<region>[a-z0-9\-]+)\.(?P<service>[a-z]+)\.amazonaws.com$").unwrap();
     pub static ref SIGNED_HEADERS: Vec<HeaderName> = vec![

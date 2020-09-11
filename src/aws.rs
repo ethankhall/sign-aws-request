@@ -1,14 +1,14 @@
 use async_trait::async_trait;
 
+use lazy_static::lazy_static;
 use rusoto_credential::{
     AutoRefreshingProvider, AwsCredentials, CredentialsError, DefaultCredentialsProvider,
     ProvideAwsCredentials,
 };
 use rusoto_sts::WebIdentityProvider;
-use lazy_static::lazy_static;
 
-use crate::errors::*;
 use crate::consts::AWS_URL_RE;
+use crate::errors::*;
 
 lazy_static! {
     pub static ref CREDENTIALS: AwsCredentialProvider = AwsCredentialProvider::new();

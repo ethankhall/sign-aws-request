@@ -6,18 +6,25 @@ use log::{error, trace};
 use http::Uri;
 use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::Method;
-use rusoto_credential::{ProvideAwsCredentials, AwsCredentials};
+use rusoto_credential::{AwsCredentials, ProvideAwsCredentials};
 
-use time::{OffsetDateTime};
+use time::OffsetDateTime;
+use percent_encoding::{utf8_percent_encode};
 
 use hex;
 use hmac::{Hmac, Mac, NewMac};
 use sha2::{Digest, Sha256};
+use bytes::Bytes;
 
-use crate::consts::*;
 use crate::aws::{AwsTarget, CREDENTIALS};
+use crate::consts::{STRICT_PATH_ENCODE_SET, STRICT_ENCODE_SET};
 
-pub(crate) async fn create_aws_headers(uri: Uri, method: Method, target: Arc<AwsTarget>) -> Option<HeaderMap> {
+pub(crate) async fn create_aws_headers(
+    uri: Uri,
+    method: Method,
+    target: Arc<AwsTarget>,
+    body: &Bytes
+) -> Option<HeaderMap> {
     let creds = match CREDENTIALS.credentials().await {
         Ok(creds) => creds,
         Err(e) => {
@@ -26,7 +33,15 @@ pub(crate) async fn create_aws_headers(uri: Uri, method: Method, target: Arc<Aws
         }
     };
 
-    let signer = RequestSigner::new(uri, method, creds, target);
+    let payload_hash = if body.is_empty() {
+        String::from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    } else {
+        to_hexdigest(body)
+    };
+
+    trace!("Payload Hash: {}", payload_hash);
+
+    let signer = RequestSigner::new(uri, method, creds, target, payload_hash);
     Some(signer.create_signed_headers())
 }
 
@@ -39,18 +54,36 @@ struct RequestSigner {
     method: Method,
     date: OffsetDateTime,
     creds: AwsCredentials,
+    payload_hash: String,
 }
 
 struct CanonicalRequest {
     hash: String,
-    signed_headers: String
+    signed_headers: String,
+}
+
+fn encode_query_string(uri: Uri) -> String {
+    let url = url::Url::parse(&uri.to_string()).unwrap();
+
+    let mut params: Vec<String> = Vec::new();
+
+    for (name, value) in url.query_pairs() {
+        params.push(format!("{}={}", encode_uri_strict(&name), encode_uri_strict(&value)))
+    }
+
+    params.sort();
+
+    params.join("&")
 }
 
 impl RequestSigner {
-    fn new(uri: Uri, method: Method, creds: AwsCredentials, target: Arc<AwsTarget>) -> Self {
+    fn new(uri: Uri, method: Method, creds: AwsCredentials, target: Arc<AwsTarget>, payload_hash: String) -> Self {
         let host = uri.host().unwrap().to_string();
         let path = uri.path().to_string();
-        let query = uri.query().map(|q| q.to_string()).unwrap_or_default();
+        // let query = uri.query().map(|q| q.to_string()).unwrap_or_default();
+        let query = encode_query_string(uri);
+
+        let path = utf8_percent_encode(&path, &STRICT_PATH_ENCODE_SET).collect();
 
         Self {
             host,
@@ -60,7 +93,9 @@ impl RequestSigner {
             creds,
             region: target.region.clone(),
             service: target.service.clone(),
+            payload_hash,
             date: OffsetDateTime::now_utc(),
+            // date: OffsetDateTime::from_unix_timestamp(1599758038)
         }
     }
 
@@ -73,13 +108,16 @@ impl RequestSigner {
             to_header_value(self.date.format("%Y%m%dT%H%M%SZ")),
         );
 
+        let auth_header = self.create_auth_header(&signed_headers);
+
+        signed_headers.insert(header::AUTHORIZATION, to_header_value(auth_header));
+
         if let Some(token) = self.creds.token() {
             signed_headers.insert("x-amz-security-token", to_header_value(token.to_string()));
         }
 
-        let auth_header = self.create_auth_header(&signed_headers);
+        signed_headers.insert("x-amz-content-sha256", to_header_value(self.payload_hash.clone()));
 
-        signed_headers.insert(header::AUTHORIZATION, to_header_value(auth_header));
         signed_headers
     }
 
@@ -120,24 +158,24 @@ impl RequestSigner {
 
         let canonical_request = format!(
             "{}\n{}\n{}\n{}\n{}\n{}",
-            &self.method,
+            self.method.as_str(),
             self.path,
             self.query,
-            header_list.join("\n"),
+            format!("{}\n", header_list.join("\n")),
             signed_headers,
-            UNSIGNED_PAYLOAD
+            self.payload_hash,
         );
 
         trace!(
             "canonical_request: {}",
-            canonical_request.replace("\n", "\\n")
+            canonical_request
         );
 
         let hash = to_hexdigest(&canonical_request);
 
         CanonicalRequest {
             hash,
-            signed_headers
+            signed_headers,
         }
     }
 
@@ -152,14 +190,14 @@ impl RequestSigner {
     }
 
     /// Takes a message and signs it using AWS secret, time, region keys and service keys.
-    fn sign_string(
-        &self,
-        string_to_sign: &str
-    ) -> String {
+    fn sign_string(&self, string_to_sign: &str) -> String {
         let date_str = self.date.date().format("%Y%m%d");
-        let date_hmac = hmac(format!("AWS4{}", self.creds.aws_secret_access_key()).as_bytes(), date_str.as_bytes())
-            .finalize()
-            .into_bytes();
+        let date_hmac = hmac(
+            format!("AWS4{}", self.creds.aws_secret_access_key()).as_bytes(),
+            date_str.as_bytes(),
+        )
+        .finalize()
+        .into_bytes();
         let region_hmac = hmac(date_hmac.as_ref(), self.region.as_bytes())
             .finalize()
             .into_bytes();
@@ -182,6 +220,11 @@ fn hmac(secret: &[u8], message: &[u8]) -> Hmac<Sha256> {
     let mut hmac = Hmac::<Sha256>::new_varkey(secret).expect("failed to create hmac");
     hmac.update(message);
     hmac
+}
+
+#[inline]
+fn encode_uri_strict(uri: &str) -> String {
+    utf8_percent_encode(uri, &STRICT_ENCODE_SET).collect::<String>()
 }
 
 fn to_hexdigest<T: AsRef<[u8]>>(t: T) -> String {

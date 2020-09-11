@@ -1,25 +1,24 @@
-use log::{debug, info, trace};
+use log::{debug, error, info, trace};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use lazy_static::lazy_static;
 
-use http::{StatusCode, uri::Uri};
+use http::{uri::Uri, StatusCode};
 use hyper::client::HttpConnector;
 use hyper::header::{HeaderMap, HeaderName};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server};
 use hyper_tls::HttpsConnector;
 
-
+use crate::aws::AwsTarget;
 use crate::consts::*;
 use crate::errors::*;
 use crate::{init_logger, ServeArgs};
-use crate::aws::AwsTarget;
 
 lazy_static! {
-    static ref CLIENT: Client<HttpsConnector<HttpConnector>> = make_client();
+    pub static ref CLIENT: Client<HttpsConnector<HttpConnector>> = make_client();
 }
 
 fn make_client() -> Client<HttpsConnector<HttpConnector>, hyper::Body> {
@@ -32,6 +31,7 @@ pub(crate) async fn serve(args: &ServeArgs) -> Result<(), CliErrors> {
 
     // Construct our SocketAddr to listen on...
     let server_addr: SocketAddr = args.listen_address.parse().expect("Valid Socket Address");
+    info!("Listening on {}", server_addr);
     info!("Forwarding request to {}", args.destination);
 
     let aws_target = Arc::new(AwsTarget::new(&args.destination)?);
@@ -70,8 +70,6 @@ async fn process_request(
     trace!("Processing request for {:?}", req);
 
     let mut downstream_headers = make_downstream_headers(req.headers());
-    trace!("Downstream Headers: {:?}", downstream_headers);
-
     let path_and_query = req
         .uri()
         .path_and_query()
@@ -85,18 +83,57 @@ async fn process_request(
 
     let method = req.method().clone();
     let full_body = hyper::body::to_bytes(req.into_body()).await.unwrap();
-    let aws_headers = match crate::request::create_aws_headers(target_uri, method, aws_target).await {
-        Some(headers) => headers,
-        None => {
-            return Ok(Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Body::from("Unable to auth with AWS")).unwrap())
-        }
-    };
+    let aws_headers =
+        match crate::request::create_aws_headers(target_uri.clone(), method.clone(), aws_target, &full_body)
+            .await
+        {
+            Some(headers) => headers,
+            None => {
+                return Ok(Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::from("Unable to auth with AWS"))
+                    .unwrap());
+            }
+        };
 
     for (key, value) in aws_headers.iter() {
         downstream_headers.insert(key, value.clone());
     }
 
-    Ok(Response::new(Body::from("Hello World")))
+    trace!("Downstream Headers: {:?}", downstream_headers);
+
+    let mut builder = Request::builder().method(method).uri(target_uri);
+
+    {
+        let request_headers = builder.headers_mut().unwrap();
+        for (key, value) in downstream_headers.iter() {
+            request_headers.insert(key, value.clone());
+        }
+    }
+
+    let downstream_request = match builder.body(Body::from(full_body)) {
+        Ok(req) => req,
+        Err(e) => {
+            error!("Unable to create request: {}", e);
+            return Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from("Unable to create request"))
+                .unwrap());
+        }
+    };
+
+    let response = match CLIENT.request(downstream_request).await {
+        Err(e) => {
+            error!("Unable to execute downstream request: {}", e);
+            return Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from("Unable to execute downstream request"))
+                .unwrap());
+        }
+        Ok(resp) => resp
+    };
+
+    Ok(response)
 }
 
 fn make_downstream_headers(origonal_headers: &HeaderMap) -> HeaderMap {

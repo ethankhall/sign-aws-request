@@ -1349,6 +1349,7 @@ dependencies = [
  "sha2",
  "time 0.2.18",
  "tokio",
+ "url",
 ]
 
 [[package]]
