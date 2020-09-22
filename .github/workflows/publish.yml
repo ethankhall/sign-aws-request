@@ -14,12 +14,16 @@ jobs:
       run: docker login docker.pkg.github.com --username ethankhall --password ${{ secrets.GITHUB_TOKEN }}
     - name: Build the Docker image
       run: |
-        docker run --rm -v $(pwd):/target docker.pkg.github.com/ethankhall/crom/cli:latest update-version --pre-release release
+        docker run --rm -e GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} -v $(pwd):/target docker.pkg.github.com/ethankhall/crom/cli:latest tag-version --local --github --ignore-changes
+        VERSION=$(docker run --rm -v $(pwd):/target docker.pkg.github.com/ethankhall/crom/cli:latest get current-version --no-snapshot | sed 's/v//g')
+        docker run --rm -v $(pwd):/target docker.pkg.github.com/ethankhall/crom/cli:latest update-version --local --override-version $VERSION
         docker build . --file Dockerfile --tag sign-aws-request
     - name: push to registry
       run: |
         VERSION=$(docker run --rm -v $(pwd):/target docker.pkg.github.com/ethankhall/crom/cli:latest get current-version --no-snapshot | sed 's/v//g')
         docker tag sign-aws-request docker.pkg.github.com/ethankhall/sign-aws-request/proxy:$(git rev-parse --short HEAD)
+        docker tag sign-aws-request docker.pkg.github.com/ethankhall/sign-aws-request/proxy:$VERSION
         docker tag sign-aws-request docker.pkg.github.com/ethankhall/sign-aws-request/proxy:latest
         docker push docker.pkg.github.com/ethankhall/sign-aws-request/proxy:$(git rev-parse --short HEAD)
+        docker push docker.pkg.github.com/ethankhall/sign-aws-request/proxy:$VERSION
         docker push docker.pkg.github.com/ethankhall/sign-aws-request/proxy:latest
