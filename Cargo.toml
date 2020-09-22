@@ -1,5 +1,5 @@
 [package]
-name = "sign-request"
+name = "sign-aws-request"
 version = "0.1.0"
 authors = ["Ethan Hall <ethan@hall.sh>"]
 edition = "2018"
@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 log = "*"
-clap = { git = "https://github.com/clap-rs/clap/" }
+clap = { git = "https://github.com/clap-rs/clap/", tag = "v3.0.0-beta.2" }
 loggerv = "0.7"
 dotenv = "0.15.0"
 error-enum = { git = "https://github.com/ethankhall/error-enum-generator", rev = "b5f3276a8d967fc58149d0698a342539ebcec55e" }

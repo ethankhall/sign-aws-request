@@ -140,8 +140,8 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.0.0-beta.1"
-source = "git+https://github.com/clap-rs/clap/#3e9ee86713b5c407b50ba76f30cffaed25952063"
+version = "3.0.0-beta.2"
+source = "git+https://github.com/clap-rs/clap/?tag=v3.0.0-beta.2#08b2f4d4289eca8a9225bbc56d5a5ad1e99e38e1"
 dependencies = [
  "atty",
  "bitflags",
@@ -158,8 +158,8 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "3.0.0-beta.1"
-source = "git+https://github.com/clap-rs/clap/#3e9ee86713b5c407b50ba76f30cffaed25952063"
+version = "3.0.0-beta.2"
+source = "git+https://github.com/clap-rs/clap/?tag=v3.0.0-beta.2#08b2f4d4289eca8a9225bbc56d5a5ad1e99e38e1"
 dependencies = [
  "heck",
  "proc-macro-error 1.0.4",
@@ -1353,7 +1353,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fdf1b9db47230893d76faad238fd6097fd6d6a9245cd7a4d90dbd639536bbd2"
 
 [[package]]
-name = "sign-request"
+name = "sign-aws-request"
 version = "0.1.0"
 dependencies = [
  "async-trait",
