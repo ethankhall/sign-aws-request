@@ -16,7 +16,7 @@ jobs:
       run: |
         docker run --rm -e GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} -v $(pwd):/target docker.pkg.github.com/ethankhall/crom/cli:latest tag-version --local --github --ignore-changes
         VERSION=$(docker run --rm -v $(pwd):/target docker.pkg.github.com/ethankhall/crom/cli:latest get current-version --no-snapshot | sed 's/v//g')
-        docker run --rm -v $(pwd):/target docker.pkg.github.com/ethankhall/crom/cli:latest update-version --local --override-version $VERSION
+        docker run --rm -v $(pwd):/target docker.pkg.github.com/ethankhall/crom/cli:latest update-version --override-version $VERSION
         docker build . --file Dockerfile --tag sign-aws-request
     - name: push to registry
       run: |
