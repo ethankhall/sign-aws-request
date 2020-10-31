@@ -77,20 +77,13 @@ pub(crate) async fn serve(args: &ServeArgs) -> Result<(), CliErrors> {
     });
 
     let server = Server::bind(&server_addr).serve(make_service);
-    let server = server.with_graceful_shutdown(shutdown_signal());
+    // let server = server.with_graceful_shutdown(shutdown_signal());
 
     // And run forever...
     match server.await {
         Err(e) => Err(CliErrors::Unknown(UnknownErrors::Unknown(e.to_string()))),
         Ok(_) => Ok(()),
     }
-}
-
-async fn shutdown_signal() {
-    // Wait for the CTRL+C signal
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to install CTRL+C signal handler");
 }
 
 async fn process_request(
@@ -184,5 +177,5 @@ fn allow_header(header_name: &HeaderName) -> bool {
             return false;
         }
     }
-    return true;
+    true
 }

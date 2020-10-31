@@ -22,8 +22,8 @@ pub const STRICT_ENCODE_SET: AsciiSet = NON_ALPHANUMERIC
 /// This struct is used to maintain the URI path encoding
 pub const STRICT_PATH_ENCODE_SET: AsciiSet = STRICT_ENCODE_SET.remove(b'/');
 
-pub const ISO_8601_DATETIME: &'static str = "%Y%m%dT%H%M%SZ";
-pub const ISO_8601_DATE: &'static str = "%Y%m%d";
+pub const ISO_8601_DATETIME: &str = "%Y%m%dT%H%M%SZ";
+pub const ISO_8601_DATE: &str = "%Y%m%d";
 
 lazy_static! {
     pub static ref AWS_URL_RE: Regex = Regex::new(r"^https?://(?P<endpoint>[a-zA-Z0-9\-_]+)\.(?P<region>[a-z0-9\-]+)\.(?P<service>[a-z]+)\.amazonaws.com$").unwrap();

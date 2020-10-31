@@ -10,7 +10,6 @@ use percent_encoding::utf8_percent_encode;
 use time::OffsetDateTime;
 
 use bytes::Bytes;
-use hex;
 use hmac::{Hmac, Mac, NewMac};
 use sha2::{Digest, Sha256};
 
@@ -40,7 +39,7 @@ impl Signer {
         let signed = unsigned_string.sign(creds.aws_secret_access_key());
 
         let mut signed_headers = init.headers;
-        signed_headers.insert(header::AUTHORIZATION, to_header_value(signed.token));
+        signed_headers.insert(header::AUTHORIZATION, to_header_value(create_auth_header(&creds, canonical_request, unsigned_string, signed)));
 
         if let Some(token) = creds.token() {
             signed_headers.insert("x-amz-security-token", to_header_value(token.to_string()));
@@ -48,11 +47,21 @@ impl Signer {
 
         signed_headers.insert(
             "x-amz-content-sha256",
-            to_header_value(init.payload_hash.clone()),
+            to_header_value(init.payload_hash),
         );
 
-        return Some(signed_headers);
+        Some(signed_headers)
     }
+}
+
+fn create_auth_header(creds: &AwsCredentials, canonical_request: CanonicalRequest, unsigned: UnsignedString, signature: RequestSignature) -> String {
+    format!(
+        "AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}",
+        creds.aws_access_key_id(),
+        unsigned.scope,
+        canonical_request.signed_headers,
+        signature.token
+    )
 }
 
 struct SigningInit {
@@ -103,6 +112,7 @@ struct UnsignedString {
     service: String,
     region: String,
     string_to_sign: String,
+    scope: String,
     date: OffsetDateTime,
 }
 
@@ -125,7 +135,8 @@ impl UnsignedString {
         UnsignedString {
             service: String::from(service),
             region: String::from(region),
-            date: canonical_request.date.clone(),
+            date: canonical_request.date,
+            scope,
             string_to_sign,
         }
     }
@@ -164,7 +175,6 @@ struct RequestSignature {
 struct CanonicalRequest {
     date: OffsetDateTime,
     hash: String,
-    #[cfg(test)]
     signed_headers: String,
 }
 
@@ -202,9 +212,8 @@ impl CanonicalRequest {
 
         CanonicalRequest {
             hash,
-            #[cfg(test)]
             signed_headers,
-            date: request.date.clone(),
+            date: request.date,
         }
     }
 }
