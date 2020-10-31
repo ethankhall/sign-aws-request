@@ -39,22 +39,32 @@ impl Signer {
         let signed = unsigned_string.sign(creds.aws_secret_access_key());
 
         let mut signed_headers = init.headers;
-        signed_headers.insert(header::AUTHORIZATION, to_header_value(create_auth_header(&creds, canonical_request, unsigned_string, signed)));
+        signed_headers.insert(
+            header::AUTHORIZATION,
+            to_header_value(create_auth_header(
+                &creds,
+                canonical_request,
+                unsigned_string,
+                signed,
+            )),
+        );
 
         if let Some(token) = creds.token() {
             signed_headers.insert("x-amz-security-token", to_header_value(token.to_string()));
         }
 
-        signed_headers.insert(
-            "x-amz-content-sha256",
-            to_header_value(init.payload_hash),
-        );
+        signed_headers.insert("x-amz-content-sha256", to_header_value(init.payload_hash));
 
         Some(signed_headers)
     }
 }
 
-fn create_auth_header(creds: &AwsCredentials, canonical_request: CanonicalRequest, unsigned: UnsignedString, signature: RequestSignature) -> String {
+fn create_auth_header(
+    creds: &AwsCredentials,
+    canonical_request: CanonicalRequest,
+    unsigned: UnsignedString,
+    signature: RequestSignature,
+) -> String {
     format!(
         "AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}",
         creds.aws_access_key_id(),
@@ -347,7 +357,9 @@ fn ensure_auth_header_includes_all_values() {
         .parse()
         .unwrap();
     let creds = AwsCredentials::new("aaaaaa", "bbbbbb", None, None);
-    let headers = signer.sign_request(&uri, Method::POST, &Bytes::new(), creds).unwrap();
+    let headers = signer
+        .sign_request(&uri, Method::POST, &Bytes::new(), creds)
+        .unwrap();
 
     let auth_header = headers.get(header::AUTHORIZATION).unwrap();
     let re = Regex::new(r"^(.*) Credential=(.*), SignedHeaders=(.*), Signature=(.*)$").unwrap();

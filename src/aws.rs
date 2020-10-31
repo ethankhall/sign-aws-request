@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use log::{error, debug};
+use log::{debug, error};
 
 use lazy_static::lazy_static;
 use rusoto_credential::{
@@ -41,7 +41,7 @@ impl ProvideAwsCredentials for AwsCredentialProvider {
             Ok(creds) => {
                 debug!("Using Web Identity Provider for creds");
                 return Ok(creds);
-            },
+            }
             Err(e) => {
                 debug!("Unable to use Web Identity Provider to get creds: {}", e);
             }
