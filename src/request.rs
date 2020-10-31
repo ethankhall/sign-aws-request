@@ -10,7 +10,6 @@ use percent_encoding::utf8_percent_encode;
 use time::OffsetDateTime;
 
 use bytes::Bytes;
-use hex;
 use hmac::{Hmac, Mac, NewMac};
 use sha2::{Digest, Sha256};
 
@@ -40,19 +39,39 @@ impl Signer {
         let signed = unsigned_string.sign(creds.aws_secret_access_key());
 
         let mut signed_headers = init.headers;
-        signed_headers.insert(header::AUTHORIZATION, to_header_value(signed.token));
+        signed_headers.insert(
+            header::AUTHORIZATION,
+            to_header_value(create_auth_header(
+                &creds,
+                canonical_request,
+                unsigned_string,
+                signed,
+            )),
+        );
 
         if let Some(token) = creds.token() {
             signed_headers.insert("x-amz-security-token", to_header_value(token.to_string()));
         }
 
-        signed_headers.insert(
-            "x-amz-content-sha256",
-            to_header_value(init.payload_hash.clone()),
-        );
+        signed_headers.insert("x-amz-content-sha256", to_header_value(init.payload_hash));
 
-        return Some(signed_headers);
+        Some(signed_headers)
     }
+}
+
+fn create_auth_header(
+    creds: &AwsCredentials,
+    canonical_request: CanonicalRequest,
+    unsigned: UnsignedString,
+    signature: RequestSignature,
+) -> String {
+    format!(
+        "AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}",
+        creds.aws_access_key_id(),
+        unsigned.scope,
+        canonical_request.signed_headers,
+        signature.token
+    )
 }
 
 struct SigningInit {
@@ -103,6 +122,7 @@ struct UnsignedString {
     service: String,
     region: String,
     string_to_sign: String,
+    scope: String,
     date: OffsetDateTime,
 }
 
@@ -125,7 +145,8 @@ impl UnsignedString {
         UnsignedString {
             service: String::from(service),
             region: String::from(region),
-            date: canonical_request.date.clone(),
+            date: canonical_request.date,
+            scope,
             string_to_sign,
         }
     }
@@ -164,7 +185,6 @@ struct RequestSignature {
 struct CanonicalRequest {
     date: OffsetDateTime,
     hash: String,
-    #[cfg(test)]
     signed_headers: String,
 }
 
@@ -202,9 +222,8 @@ impl CanonicalRequest {
 
         CanonicalRequest {
             hash,
-            #[cfg(test)]
             signed_headers,
-            date: request.date.clone(),
+            date: request.date,
         }
     }
 }
@@ -327,6 +346,25 @@ fn test_encode_query_string() {
         "%2Afoo=%2Abar&%2Afoo=%2Afoo",
         encode_query_string(&"http://localhost?*foo=*bar&*foo=*foo".parse().unwrap())
     );
+}
+
+#[test]
+fn ensure_auth_header_includes_all_values() {
+    use regex::Regex;
+
+    let signer = Signer::new("es".to_string(), "us-west-2".to_string());
+    let uri: Uri = "https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
+        .parse()
+        .unwrap();
+    let creds = AwsCredentials::new("aaaaaa", "bbbbbb", None, None);
+    let headers = signer
+        .sign_request(&uri, Method::POST, &Bytes::new(), creds)
+        .unwrap();
+
+    let auth_header = headers.get(header::AUTHORIZATION).unwrap();
+    let re = Regex::new(r"^(.*) Credential=(.*), SignedHeaders=(.*), Signature=(.*)$").unwrap();
+    let auth_header = auth_header.to_str().unwrap();
+    assert!(re.is_match(auth_header), "header value: `{}`", auth_header);
 }
 
 #[inline]

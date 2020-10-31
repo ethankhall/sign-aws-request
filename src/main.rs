@@ -23,7 +23,7 @@ struct LoggingOpts {
     error: bool,
 }
 /// Proxy request to AWS, ans sign it along the way.
-/// 
+///
 /// This tool is intended to sit in front of a specific AWS service,
 /// sign the request for that service, and forward it to the service.
 /// This makes it easy for tools that don't understand AWS to talk to
