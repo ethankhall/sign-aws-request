@@ -338,6 +338,23 @@ fn test_encode_query_string() {
     );
 }
 
+#[test]
+fn ensure_auth_header_includes_all_values() {
+    use regex::Regex;
+
+    let signer = Signer::new("es".to_string(), "us-west-2".to_string());
+    let uri: Uri = "https://iam.amazonaws.com/?Action=ListUsers&Version=2010-05-08"
+        .parse()
+        .unwrap();
+    let creds = AwsCredentials::new("aaaaaa", "bbbbbb", None, None);
+    let headers = signer.sign_request(&uri, Method::POST, &Bytes::new(), creds).unwrap();
+
+    let auth_header = headers.get(header::AUTHORIZATION).unwrap();
+    let re = Regex::new(r"^(.*) Credential=(.*), SignedHeaders=(.*), Signature=(.*)$").unwrap();
+    let auth_header = auth_header.to_str().unwrap();
+    assert!(re.is_match(auth_header), "header value: `{}`", auth_header);
+}
+
 #[inline]
 fn hmac(secret: &[u8], message: &[u8]) -> Hmac<Sha256> {
     let mut hmac = Hmac::<Sha256>::new_varkey(secret).expect("failed to create hmac");
