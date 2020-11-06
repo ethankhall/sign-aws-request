@@ -16,7 +16,7 @@ use hyper_tls::HttpsConnector;
 use crate::aws::AutomaticSigner;
 use crate::consts::*;
 use crate::errors::*;
-use crate::{init_logger, ServeArgs};
+use crate::{init_logger, LoggingOpts, ServeArgs};
 
 lazy_static! {
     pub static ref CLIENT: Client<HttpsConnector<HttpConnector>> = make_client();
@@ -35,15 +35,18 @@ struct ForwardTarget {
 
 impl ForwardTarget {
     pub fn new(url: &str) -> Result<Self, ConfigErrors> {
-        let captures = match AWS_URL_RE.captures(&url) {
-            Some(capture) => capture,
-            None => return Err(ConfigErrors::InvalidAwsTarget(url.to_string())),
+        let signer = match AWS_URL_RE.captures(&url) {
+            Some(capture) => AutomaticSigner::new(
+                capture["service"].to_string(),
+                capture["region"].to_string(),
+            ),
+            None => match S3_AWS_URL_RE.captures(&url) {
+                Some(capture) => {
+                    AutomaticSigner::new("s3".to_string(), capture["region"].to_string())
+                }
+                None => return Err(ConfigErrors::InvalidAwsTarget(url.to_string())),
+            },
         };
-
-        let signer = AutomaticSigner::new(
-            captures["service"].to_string(),
-            captures["region"].to_string(),
-        );
 
         Ok(ForwardTarget {
             signer,
@@ -56,8 +59,11 @@ impl ForwardTarget {
     }
 }
 
-pub(crate) async fn serve(args: &ServeArgs) -> Result<(), CliErrors> {
-    init_logger(&args.logging_opts);
+pub(crate) async fn serve(
+    root_logging_opts: &LoggingOpts,
+    args: &ServeArgs,
+) -> Result<(), CliErrors> {
+    init_logger(&LoggingOpts::merge(&root_logging_opts, &args.logging_opts));
 
     // Construct our SocketAddr to listen on...
     let server_addr: SocketAddr = args.listen_address.parse().expect("Valid Socket Address");

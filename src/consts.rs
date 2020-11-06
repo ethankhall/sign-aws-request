@@ -27,6 +27,7 @@ pub const ISO_8601_DATE: &str = "%Y%m%d";
 
 lazy_static! {
     pub static ref AWS_URL_RE: Regex = Regex::new(r"^https?://(?P<endpoint>[a-zA-Z0-9\-_]+)\.(?P<region>[a-z0-9\-]+)\.(?P<service>[a-z]+)\.amazonaws.com$").unwrap();
+    pub static ref S3_AWS_URL_RE: Regex = Regex::new(r"^https?://s3\.(?P<region>[a-z0-9\-]+)\.amazonaws.com$").unwrap();
     pub static ref SIGNED_HEADERS: Vec<HeaderName> = vec![
         header::HOST,
         header::CONTENT_TYPE,

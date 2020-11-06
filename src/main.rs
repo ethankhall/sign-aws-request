@@ -22,6 +22,31 @@ struct LoggingOpts {
     #[clap(short, long, group = "logging")]
     error: bool,
 }
+
+impl LoggingOpts {
+    pub fn merge(right: &LoggingOpts, left: &LoggingOpts) -> LoggingOpts {
+        if right.debug || left.debug {
+            LoggingOpts {
+                debug: true,
+                error: false,
+                verbose: 0,
+            }
+        } else if right.verbose != 0 || left.verbose != 0 {
+            LoggingOpts {
+                verbose: std::cmp::max(right.verbose, left.verbose),
+                debug: false,
+                error: false,
+            }
+        } else {
+            LoggingOpts {
+                debug: true,
+                error: right.error || left.error,
+                verbose: 0,
+            }
+        }
+    }
+}
+
 /// Proxy request to AWS, ans sign it along the way.
 ///
 /// This tool is intended to sit in front of a specific AWS service,
@@ -62,7 +87,7 @@ pub async fn main() {
 
     let opt = Opts::parse();
     let result = match opt.subcmd {
-        SubCommand::Serve(args) => crate::serve::serve(&args).await,
+        SubCommand::Serve(args) => crate::serve::serve(&opt.logging_opts, &args).await,
     };
 
     if let Err(e) = result {
