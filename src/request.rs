@@ -33,7 +33,13 @@ impl Signer {
         body: &Bytes,
         creds: AwsCredentials,
     ) -> Option<HeaderMap> {
-        let init = SigningInit::new(uri, method, body);
+        let mut init = SigningInit::new(uri, self.service.clone(), method, body);
+
+        if let Some(token) = creds.token() {
+            init.headers
+                .insert("x-amz-security-token", to_header_value(token.to_string()));
+        }
+
         let canonical_request = CanonicalRequest::from(&init);
         let unsigned_string = UnsignedString::from(&self.service, &self.region, &canonical_request);
         let signed = unsigned_string.sign(creds.aws_secret_access_key());
@@ -48,10 +54,6 @@ impl Signer {
                 signed,
             )),
         );
-
-        if let Some(token) = creds.token() {
-            signed_headers.insert("x-amz-security-token", to_header_value(token.to_string()));
-        }
 
         signed_headers.insert("x-amz-content-sha256", to_header_value(init.payload_hash));
 
@@ -76,6 +78,7 @@ fn create_auth_header(
 
 struct SigningInit {
     uri: Uri,
+    service: String,
     method: Method,
     payload_hash: String,
     headers: HeaderMap,
@@ -83,11 +86,17 @@ struct SigningInit {
 }
 
 impl SigningInit {
-    fn new(uri: &Uri, method: Method, body: &Bytes) -> Self {
-        SigningInit::new_with_date(uri, method, body, OffsetDateTime::now_utc())
+    fn new(uri: &Uri, service: String, method: Method, body: &Bytes) -> Self {
+        SigningInit::new_with_date(uri, service, method, body, OffsetDateTime::now_utc())
     }
 
-    fn new_with_date(uri: &Uri, method: Method, body: &Bytes, date: OffsetDateTime) -> Self {
+    fn new_with_date(
+        uri: &Uri,
+        service: String,
+        method: Method,
+        body: &Bytes,
+        date: OffsetDateTime,
+    ) -> Self {
         let mut headers = HeaderMap::new();
         let uri = uri.clone();
 
@@ -102,6 +111,7 @@ impl SigningInit {
 
         SigningInit {
             uri,
+            service,
             method,
             payload_hash: payload_hash(body),
             date,
@@ -204,7 +214,15 @@ impl CanonicalRequest {
         let signed_headers = signed_headers.join(";");
 
         let path = request.uri.path().to_string();
-        let path: String = utf8_percent_encode(&path, &STRICT_PATH_ENCODE_SET).collect();
+
+        // Normalize URI paths according to RFC 3986. Remove redundant and relative path components. Each path segment must be URI-encoded twice (except for Amazon S3 which only gets URI-encoded once).
+        // see https://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
+        let path: String = if request.service.to_ascii_lowercase() != "s3" {
+            utf8_percent_encode(&path, &STRICT_PATH_ENCODE_SET).collect()
+        } else {
+            path.to_string()
+        };
+
         let query = encode_query_string(&request.uri);
 
         let canonical_request = format!(
@@ -245,7 +263,8 @@ fn make_aws_example_signing_init() -> SigningInit {
         .parse()
         .unwrap();
     let body = Bytes::new();
-    let mut siging_request = SigningInit::new_with_date(&uri, Method::GET, &body, date);
+    let mut siging_request =
+        SigningInit::new_with_date(&uri, "iam".to_owned(), Method::GET, &body, date);
     siging_request.headers.insert(
         header::CONTENT_TYPE,
         to_header_value("application/x-www-form-urlencoded; charset=utf-8"),
